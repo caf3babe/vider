@@ -1,29 +1,37 @@
 import { useState } from 'react'
 
 export default function UrlForm({ onSubmit, loading }) {
-  const [url, setUrl] = useState('')
+  const [text, setText] = useState('')
+
+  const parseUrls = (text) => {
+    return text
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (url.trim()) onSubmit(url.trim())
+    const urls = parseUrls(text)
+    if (urls.length > 0) onSubmit(urls)
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 w-full">
-      <input
-        type="url"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="https://www.instagram.com/reel/..."
-        required
-        className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-white/30 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/30 transition"
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3 w-full">
+      <label className="text-xs font-black uppercase tracking-wide">URLs (one per line)</label>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="https://www.instagram.com/reel/...&#10;https://youtu.be/...&#10;https://youtube.com/watch?v=..."
+        rows={4}
+        className="w-full border-3 border-black bg-white px-4 py-3 text-sm text-black placeholder-black/40 outline-none focus:border-5 transition font-mono"
       />
       <button
         type="submit"
-        disabled={loading}
-        className="rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 transition cursor-pointer"
+        disabled={loading || !text.trim()}
+        className="border-3 border-black bg-black text-white px-6 py-3 text-sm font-black uppercase tracking-wide hover:bg-white hover:text-black disabled:opacity-50 transition cursor-pointer"
       >
-        {loading ? 'Fetching…' : 'Fetch'}
+        {loading ? 'Fetching…' : 'Fetch All'}
       </button>
     </form>
   )

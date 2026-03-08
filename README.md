@@ -1,12 +1,12 @@
 # vider
 
-Download Instagram videos and reels from your browser. Paste a URL, pick a quality, done.
+Download videos from Instagram and YouTube in your browser. Paste a URL, pick a quality, done.
 
 ![CI / Release](https://github.com/caf3babe/vider/actions/workflows/release.yml/badge.svg)
 
 ## Features
 
-- Supports Instagram posts, reels, and IGTV
+- Supports Instagram and YouTube (video + MP3 audio)
 - Shows all available resolutions — download the one you want
 - Displays title, uploader, thumbnail, and duration before downloading
 - Single self-contained Docker image (frontend served by the backend)
