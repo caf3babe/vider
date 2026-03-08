@@ -1,13 +1,15 @@
 """Vider backend — Instagram video info & download proxy."""
 
 import re
+import shutil
 import tempfile
 from pathlib import Path
 
+import httpx
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -15,7 +17,7 @@ app = FastAPI(title="Vider API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:4173"],
+    allow_origins=["http://localhost:5173", "http://localhost:4173", "http://localhost:8000"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -88,6 +90,34 @@ def get_info(url: str = Query(..., description="Instagram post/reel URL")):
     )
 
 
+@app.get("/api/thumbnail")
+async def thumbnail_proxy(url: str = Query(...)):
+    """Proxy thumbnail to avoid CORS issues with Instagram."""
+    url = _validate_instagram_url(url)
+
+    ydl_opts = {"quiet": True, "skip_download": True}
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.DownloadError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    thumbnail_url = info.get("thumbnail")
+    if not thumbnail_url:
+        raise HTTPException(status_code=404, detail="No thumbnail available")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(thumbnail_url, follow_redirects=True, timeout=10.0)
+            response.raise_for_status()
+            return StreamingResponse(
+                iter([response.content]),
+                media_type=response.headers.get("content-type", "image/jpeg"),
+            )
+        except httpx.RequestError as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch thumbnail: {exc}") from exc
+
+
 @app.get("/api/download")
 def download(
     url: str = Query(...),
@@ -96,41 +126,74 @@ def download(
     url = _validate_instagram_url(url)
 
     tmp_dir = tempfile.mkdtemp()
-    out_path: list[Path] = []
-
-    def hook(d: dict) -> None:
-        if d["status"] == "finished":
-            out_path.append(Path(d["filename"]))
-
-    fmt = (
-        f"{format_id}+bestaudio/best"
-        if format_id != "best"
-        else "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-    )
+    
+    # Format selection: prioritize H.264 + AAC for macOS QuickTime compatibility
+    if format_id != "best":
+        fmt = f"{format_id}+bestaudio/best"
+    else:
+        # Prefer formats that QuickTime can handle: H.264 video + AAC audio
+        fmt = (
+            "bestvideo[vcodec^=avc1][ext=mp4]+"
+            "bestaudio[acodec=aac][ext=m4a]/"
+            "bestvideo[vcodec^=avc1]+"
+            "bestaudio[acodec=aac]/"
+            "bestvideo[ext=mp4]+"
+            "bestaudio[ext=m4a]/"
+            "best[ext=mp4]"
+        )
 
     ydl_opts = {
-        "outtmpl": str(Path(tmp_dir) / "%(uploader)s_%(id)s.%(ext)s"),
+        "outtmpl": str(Path(tmp_dir) / "%(title)s.%(ext)s"),
         "format": fmt,
-        "progress_hooks": [hook],
-        "quiet": True,
+        "quiet": False,
+        "no_warnings": False,
         "merge_output_format": "mp4",
+        # FFmpeg options for QuickTime compatibility
+        "postprocessor_args": [
+            "-c:v", "libx264", 
+            "-preset", "fast",
+            "-c:a", "aac",
+            "-q:a", "5"
+        ],
+        "prefer_ffmpeg": True,
+        "ffmpeg_location": None,  # Use system ffmpeg
+        "check_formats": "selected",
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            file_path = Path(filename)
     except yt_dlp.utils.DownloadError as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"Download error: {str(exc)}") from exc
 
-    if not out_path:
-        raise HTTPException(status_code=500, detail="Download produced no file")
+    if not file_path.exists():
+        # List what files are in the directory for debugging
+        files_in_dir = list(Path(tmp_dir).glob("*"))
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Downloaded file not found: {file_path.name} (found: {[f.name for f in files_in_dir]})"
+        )
 
-    file = out_path[0]
-    return FileResponse(
-        path=file,
+    def iterfile():
+        try:
+            with open(file_path, "rb") as f:
+                while chunk := f.read(1024 * 1024):  # 1MB chunks
+                    yield chunk
+        finally:
+            # Cleanup after serving
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return StreamingResponse(
+        iterfile(),
         media_type="video/mp4",
-        filename=file.name,
-        headers={"Content-Disposition": f'attachment; filename="{file.name}"'},
+        headers={"Content-Disposition": f'attachment; filename="{file_path.name}"'},
     )
 
 

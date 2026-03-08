@@ -29,13 +29,13 @@ Open [http://localhost:8000](http://localhost:8000).
 
 ## Running locally (development)
 
-**Prerequisites:** Python 3.12+, Node 18+, ffmpeg
+**Prerequisites:** Python 3.12+, Node 18+, ffmpeg, [uv](https://docs.astral.sh/uv/)
 
 ```bash
 # Backend
 cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload
+uv sync
+uv run uvicorn main:app --reload
 # → http://localhost:8000
 
 # Frontend (separate terminal)
@@ -48,8 +48,8 @@ npm run dev
 ## Building the Docker image
 
 ```bash
-docker build -t vider .
-docker run -p 8000:8000 vider
+podman build -t vider .
+podman run -p 8000:8000 vider
 ```
 
 ## Releasing

@@ -17,9 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
 
 WORKDIR /app
 
+# Install uv
+RUN pip install --no-cache-dir uv
+
 # Install Python deps
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev
+
+# Add virtual environment to PATH
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy backend source
 COPY backend/main.py ./

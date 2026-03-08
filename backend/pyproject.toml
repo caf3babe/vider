@@ -1,0 +1,15 @@
+[project]
+name = "vider"
+version = "0.1.0"
+description = "Download Instagram videos and reels from your browser"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "yt-dlp>=2024.1.0",
+    "aiofiles>=23.0.0",
+    "httpx>=0.24.0",
+]
+
+[tool.uv]
+managed = true
