@@ -1,0 +1,22 @@
+# Vider Deployment Configuration
+# Specifies build, push, and K8s deployment settings
+
+# Container registry configuration
+registry:
+  type: homelab-distribution  # GitHub Container Registry
+  url: oci-registry.strasser.lan:5000/vider
+  tls_verify: false  # Set to false for self-signed / HTTP registries
+
+# Image configuration
+image_name: vider
+
+# Kubernetes configuration
+k8s:
+  cluster: wonderwoman  # Optional cluster name for context
+  deployment: vider
+  namespace: default
+  container: vider  # Container name in deployment (optional, defaults to deployment name)
+
+# Git configuration
+git:
+  auto_tag: true  # Automatically create git tags after successful deployment
