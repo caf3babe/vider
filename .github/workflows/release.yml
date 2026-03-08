@@ -68,23 +68,25 @@ jobs:
             org.opencontainers.image.description=Instagram video downloader
 
       # ── Build (all runs) / push (tag runs only) ───────────────────────────────
+      # CI runs: single-platform + load=true so the image is available locally.
+      # Release runs: multi-platform + push=true, no local load needed.
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          tags: ${{ steps.meta.outputs.tags }}
+          load: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ startsWith(github.ref, 'refs/tags/v') && steps.meta.outputs.tags || 'vider:ci' }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ startsWith(github.ref, 'refs/tags/v') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
 
       # ── Smoke-test the image (non-tag runs only) ──────────────────────────────
       - name: Smoke test container
         if: "!startsWith(github.ref, 'refs/tags/v')"
         run: |
-          docker run --rm -d --name vider-test -p 8000:8000 \
-            $(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          docker run --rm -d --name vider-test -p 8000:8000 vider:ci
           # Wait up to 15 s for the server to be ready
           for i in $(seq 1 15); do
             if curl -sf http://localhost:8000/ > /dev/null 2>&1; then break; fi
