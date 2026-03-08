@@ -2,13 +2,13 @@
 
 import re
 import tempfile
-import urllib.parse
 from pathlib import Path
 
 import yt_dlp
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 app = FastAPI(title="Vider API")
@@ -19,6 +19,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Serve compiled frontend when present (production / Docker)
+_STATIC = Path(__file__).parent / "static"
+if _STATIC.is_dir():
+    app.mount("/assets", StaticFiles(directory=_STATIC / "assets"), name="assets")
 
 INSTAGRAM_RE = re.compile(
     r"https?://(www\.)?instagram\.com/(p|reel|tv)/[\w-]+"
@@ -127,3 +132,12 @@ def download(
         filename=file.name,
         headers={"Content-Disposition": f'attachment; filename="{file.name}"'},
     )
+
+
+# SPA fallback — must be last
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str):
+    index = _STATIC / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    return HTMLResponse("<h1>Vider API</h1><p>Run the frontend separately in dev mode.</p>")
