@@ -11,7 +11,8 @@ export default function UrlForm({ onSubmit, loading }) {
   return (
     <form onSubmit={handleSubmit} className="flex gap-2 w-full">
       <input
-        type="url"
+        type="text"
+        inputMode="url"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         placeholder="https://www.instagram.com/reel/..."
