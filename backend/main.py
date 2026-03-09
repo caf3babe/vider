@@ -189,7 +189,9 @@ def download(
     
     # Format selection: prioritize H.264 + AAC for macOS QuickTime compatibility
     if format_id != "best":
-        fmt = f"{format_id}+bestaudio/best"
+        # Try to merge a separate audio track (YouTube DASH), fall back to the
+        # format as-is (Instagram combined mp4 already contains audio).
+        fmt = f"{format_id}+bestaudio[ext=m4a]/{format_id}+bestaudio/{format_id}"
     else:
         # Prefer formats that QuickTime can handle: H.264 video + AAC audio
         fmt = (
