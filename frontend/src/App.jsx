@@ -34,7 +34,12 @@ export default function App() {
       </div>
 
       <div className="w-full max-w-lg flex flex-col gap-4">
-        <UrlForm onSubmit={handleSubmit} loading={loading} />
+        <UrlForm
+          onSubmit={handleSubmit}
+          loading={loading}
+          hasResult={!!info || !!error}
+          onClear={() => { setInfo(null); setError(null) }}
+        />
 
         {error && (
           <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
