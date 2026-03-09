@@ -30,6 +30,9 @@ if _STATIC.is_dir():
 INSTAGRAM_RE = re.compile(
     r"https?://(www\.)?instagram\.com/(p|reel|tv)/[\w-]+"
 )
+YOUTUBE_RE = re.compile(
+    r"https?://(www\.)?(youtube\.com/(watch\?[^#]*v=[\w-]+|shorts/[\w-]+)|youtu\.be/[\w-]+)"
+)
 
 
 class VideoInfo(BaseModel):
@@ -41,16 +44,18 @@ class VideoInfo(BaseModel):
     formats: list[dict]
 
 
-def _validate_instagram_url(url: str) -> str:
+def _validate_url(url: str) -> tuple[str, str]:
     url = url.strip()
-    if not INSTAGRAM_RE.match(url):
-        raise HTTPException(status_code=400, detail="Not a valid Instagram URL")
-    return url
+    if INSTAGRAM_RE.match(url):
+        return url, "instagram"
+    if YOUTUBE_RE.match(url):
+        return url, "youtube"
+    raise HTTPException(status_code=400, detail="Not a valid Instagram or YouTube URL")
 
 
 @app.get("/api/info", response_model=VideoInfo)
-def get_info(url: str = Query(..., description="Instagram post/reel URL")):
-    url = _validate_instagram_url(url)
+def get_info(url: str = Query(..., description="Instagram or YouTube URL")):
+    url, _ = _validate_url(url)
 
     ydl_opts = {"quiet": True, "skip_download": True}
     try:
@@ -92,8 +97,8 @@ def get_info(url: str = Query(..., description="Instagram post/reel URL")):
 
 @app.get("/api/thumbnail")
 async def thumbnail_proxy(url: str = Query(...)):
-    """Proxy thumbnail to avoid CORS issues with Instagram."""
-    url = _validate_instagram_url(url)
+    """Proxy thumbnail to avoid CORS issues."""
+    url, _ = _validate_url(url)
 
     ydl_opts = {"quiet": True, "skip_download": True}
     try:
@@ -118,12 +123,55 @@ async def thumbnail_proxy(url: str = Query(...)):
             raise HTTPException(status_code=502, detail=f"Failed to fetch thumbnail: {exc}") from exc
 
 
+@app.get("/api/audio")
+def download_audio(url: str = Query(...)):
+    url, source = _validate_url(url)
+    if source != "youtube":
+        raise HTTPException(status_code=400, detail="Audio download is only supported for YouTube URLs")
+
+    tmp_dir = tempfile.mkdtemp()
+    ydl_opts = {
+        "outtmpl": str(Path(tmp_dir) / "%(title)s.%(ext)s"),
+        "format": "bestaudio/best",
+        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
+        "quiet": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            base_path = Path(ydl.prepare_filename(info)).with_suffix(".mp3")
+    except yt_dlp.utils.DownloadError as exc:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if not base_path.exists():
+        files = list(Path(tmp_dir).glob("*.mp3"))
+        if not files:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=500, detail="Audio file not found after download")
+        base_path = files[0]
+
+    def iterfile():
+        try:
+            with open(base_path, "rb") as f:
+                while chunk := f.read(1024 * 1024):
+                    yield chunk
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return StreamingResponse(
+        iterfile(),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": f'attachment; filename="{base_path.name}"'},
+    )
+
+
 @app.get("/api/download")
 def download(
     url: str = Query(...),
     format_id: str = Query("best"),
 ):
-    url = _validate_instagram_url(url)
+    url, _ = _validate_url(url)
 
     tmp_dir = tempfile.mkdtemp()
     
