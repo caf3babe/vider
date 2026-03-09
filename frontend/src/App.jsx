@@ -30,7 +30,7 @@ export default function App() {
         <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
           vider
         </h1>
-        <p className="mt-2 text-white/40 text-sm">Download Instagram videos & reels</p>
+        <p className="mt-2 text-white/40 text-sm">Download Instagram videos & YouTube audio</p>
       </div>
 
       <div className="w-full max-w-lg flex flex-col gap-4">
@@ -52,7 +52,7 @@ export default function App() {
       </div>
 
       <p className="mt-auto pt-16 text-xs text-white/20">
-        Supports Instagram posts, reels, and IGTV
+        Supports Instagram posts, reels, IGTV · YouTube videos & shorts (MP3)
       </p>
     </div>
   )

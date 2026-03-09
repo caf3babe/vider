@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { download, getThumbnailUrl } from '../api'
+import { download, downloadAudio, getThumbnailUrl, isYouTubeUrl } from '../api'
 
 function formatDuration(secs) {
   if (!secs) return null
@@ -22,12 +22,25 @@ function qualityLabel(fmt) {
 export default function VideoCard({ info, sourceUrl }) {
   const [downloading, setDownloading] = useState(null)
   const [error, setError] = useState(null)
+  const isYT = isYouTubeUrl(sourceUrl)
 
   const handleDownload = async (formatId) => {
     setDownloading(formatId)
     setError(null)
     try {
       await download(sourceUrl, formatId)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  const handleAudioDownload = async () => {
+    setDownloading('audio')
+    setError(null)
+    try {
+      await downloadAudio(sourceUrl)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -66,7 +79,22 @@ export default function VideoCard({ info, sourceUrl }) {
         )}
         
         <div className="flex flex-wrap gap-2">
-          {info.formats.length > 0 ? (
+          {isYT ? (
+            <button
+              onClick={handleAudioDownload}
+              disabled={downloading !== null}
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {downloading === 'audio' ? (
+                <>
+                  <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  <span>Downloading…</span>
+                </>
+              ) : (
+                'Download MP3'
+              )}
+            </button>
+          ) : info.formats.length > 0 ? (
             info.formats.map((fmt) => (
               <button
                 key={fmt.format_id}
