@@ -4,6 +4,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 import yt_dlp
@@ -42,6 +43,17 @@ class VideoInfo(BaseModel):
     duration: float | None
     uploader: str | None
     formats: list[dict]
+
+
+def _content_disposition(filename: str) -> str:
+    """Return a Content-Disposition value that works on iOS Safari / Brave.
+
+    Provides an ASCII fallback (spaces → underscores) plus an RFC 5987
+    ``filename*`` parameter so browsers that support it get the real name.
+    """
+    ascii_fallback = re.sub(r"[^\x20-\x7e]", "_", filename).replace(" ", "_").replace('"', "_")
+    encoded = quote(filename, safe=".-_~")
+    return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
 
 
 def _validate_url(url: str) -> tuple[str, str]:
@@ -162,7 +174,7 @@ def download_audio(url: str = Query(...)):
     return StreamingResponse(
         iterfile(),
         media_type="audio/mpeg",
-        headers={"Content-Disposition": f'attachment; filename="{base_path.name}"'},
+        headers={"Content-Disposition": _content_disposition(base_path.name)},
     )
 
 
@@ -196,15 +208,11 @@ def download(
         "quiet": False,
         "no_warnings": False,
         "merge_output_format": "mp4",
-        # FFmpeg options for QuickTime compatibility
-        "postprocessor_args": [
-            "-c:v", "libx264", 
-            "-preset", "fast",
-            "-c:a", "aac",
-            "-q:a", "5"
-        ],
+        # Stream-copy: already selecting H.264+AAC so no re-encoding needed.
+        # This is dramatically faster than transcoding.
+        "postprocessor_args": ["-c", "copy"],
         "prefer_ffmpeg": True,
-        "ffmpeg_location": None,  # Use system ffmpeg
+        "ffmpeg_location": None,
         "check_formats": "selected",
     }
 
@@ -241,7 +249,7 @@ def download(
     return StreamingResponse(
         iterfile(),
         media_type="video/mp4",
-        headers={"Content-Disposition": f'attachment; filename="{file_path.name}"'},
+        headers={"Content-Disposition": _content_disposition(file_path.name)},
     )
 
 
