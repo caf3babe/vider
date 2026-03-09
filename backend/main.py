@@ -189,11 +189,11 @@ def download(
     
     # Format selection: prioritize H.264 + AAC for macOS QuickTime compatibility
     if format_id != "best":
-        # Try to merge a separate audio track (YouTube DASH), fall back to the
-        # format as-is (Instagram combined mp4 already contains audio).
-        fmt = f"{format_id}+bestaudio[ext=m4a]/{format_id}+bestaudio/{format_id}"
+        # Instagram formats are combined (video+audio in one stream).
+        # Just download the selected format directly — no merge needed.
+        fmt = format_id
     else:
-        # Prefer formats that QuickTime can handle: H.264 video + AAC audio
+        # Prefer H.264 + AAC for widest device compatibility (QuickTime, iOS).
         fmt = (
             "bestvideo[vcodec^=avc1][ext=mp4]+"
             "bestaudio[acodec=aac][ext=m4a]/"
@@ -201,7 +201,8 @@ def download(
             "bestaudio[acodec=aac]/"
             "bestvideo[ext=mp4]+"
             "bestaudio[ext=m4a]/"
-            "best[ext=mp4]"
+            "best[ext=mp4]/"
+            "best"
         )
 
     ydl_opts = {
@@ -215,7 +216,6 @@ def download(
         "postprocessor_args": ["-c", "copy"],
         "prefer_ffmpeg": True,
         "ffmpeg_location": None,
-        "check_formats": "selected",
     }
 
     try:
