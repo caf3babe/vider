@@ -1,11 +1,16 @@
 import { useState } from 'react'
 
-export default function UrlForm({ onSubmit, loading }) {
+export default function UrlForm({ onSubmit, loading, hasResult, onClear }) {
   const [url, setUrl] = useState('')
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (url.trim()) onSubmit(url.trim())
+  }
+
+  const handleClear = () => {
+    setUrl('')
+    onClear()
   }
 
   return (
@@ -16,16 +21,26 @@ export default function UrlForm({ onSubmit, loading }) {
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         placeholder="Instagram reel or YouTube link…"
-        required
+        required={!hasResult}
         className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white placeholder-white/30 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/30 transition"
       />
-      <button
-        type="submit"
-        disabled={loading}
-        className="rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 transition cursor-pointer"
-      >
-        {loading ? 'Fetching…' : 'Fetch'}
-      </button>
+      {hasResult ? (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold text-white hover:opacity-90 transition cursor-pointer"
+        >
+          Clear
+        </button>
+      ) : (
+        <button
+          type="submit"
+          disabled={loading}
+          className="rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50 transition cursor-pointer"
+        >
+          {loading ? 'Fetching…' : 'Fetch'}
+        </button>
+      )}
     </form>
   )
 }
