@@ -81,7 +81,12 @@ def get_info(url: str = Query(..., description="Instagram or YouTube URL")):
     _IOS_VCODECS = ("avc1", "hvc1", "hev1", "av01", "mp4v")
 
     def _is_video(f: dict) -> bool:
-        return bool(f.get("url")) and f.get("vcodec") not in (None, "none")
+        # Only combined formats (video+audio in one stream) — excludes DASH video-only tracks.
+        return (
+            bool(f.get("url"))
+            and f.get("vcodec") not in (None, "none")
+            and f.get("acodec") not in (None, "none")
+        )
 
     def _is_ios_compat(f: dict) -> bool:
         return any(f.get("vcodec", "").startswith(c) for c in _IOS_VCODECS)
