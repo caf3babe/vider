@@ -76,6 +76,21 @@ def get_info(url: str = Query(..., description="Instagram or YouTube URL")):
     except yt_dlp.utils.DownloadError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # iOS supports H.264 (avc1), HEVC (hvc1/hev1), and AV1 (av01).
+    # VP8/VP9 are not supported and will appear as audio-only on iOS.
+    _IOS_VCODECS = ("avc1", "hvc1", "hev1", "av01", "mp4v")
+
+    def _is_video(f: dict) -> bool:
+        return bool(f.get("url")) and f.get("vcodec") not in (None, "none")
+
+    def _is_ios_compat(f: dict) -> bool:
+        return any(f.get("vcodec", "").startswith(c) for c in _IOS_VCODECS)
+
+    raw = [f for f in (info.get("formats") or []) if _is_video(f)]
+    ios_formats = [f for f in raw if _is_ios_compat(f)]
+    # Prefer iOS-compatible codecs; fall back to all video formats if none found.
+    source_formats = ios_formats or raw
+
     formats = [
         {
             "format_id": f.get("format_id"),
@@ -85,8 +100,7 @@ def get_info(url: str = Query(..., description="Instagram or YouTube URL")):
             "filesize": f.get("filesize"),
             "url": f.get("url"),
         }
-        for f in (info.get("formats") or [])
-        if f.get("url") and f.get("vcodec") not in (None, "none")
+        for f in source_formats
     ]
 
     # Deduplicate by height, keep best bitrate per resolution
@@ -189,11 +203,11 @@ def download(
     
     # Format selection: prioritize H.264 + AAC for macOS QuickTime compatibility
     if format_id != "best":
-        # Try to merge a separate audio track (YouTube DASH), fall back to the
-        # format as-is (Instagram combined mp4 already contains audio).
-        fmt = f"{format_id}+bestaudio[ext=m4a]/{format_id}+bestaudio/{format_id}"
+        # Instagram formats are combined (video+audio in one stream).
+        # Just download the selected format directly — no merge needed.
+        fmt = format_id
     else:
-        # Prefer formats that QuickTime can handle: H.264 video + AAC audio
+        # Prefer H.264 + AAC for widest device compatibility (QuickTime, iOS).
         fmt = (
             "bestvideo[vcodec^=avc1][ext=mp4]+"
             "bestaudio[acodec=aac][ext=m4a]/"
@@ -201,7 +215,8 @@ def download(
             "bestaudio[acodec=aac]/"
             "bestvideo[ext=mp4]+"
             "bestaudio[ext=m4a]/"
-            "best[ext=mp4]"
+            "best[ext=mp4]/"
+            "best"
         )
 
     ydl_opts = {
@@ -215,7 +230,6 @@ def download(
         "postprocessor_args": ["-c", "copy"],
         "prefer_ffmpeg": True,
         "ffmpeg_location": None,
-        "check_formats": "selected",
     }
 
     try:
