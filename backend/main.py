@@ -208,13 +208,14 @@ def download(
         fmt = format_id
     else:
         # Prefer H.264 + AAC for widest device compatibility (QuickTime, iOS).
+        # For YouTube DASH the bestvideo+bestaudio combos apply.
+        # For Instagram combined streams, best[vcodec^=avc1] matches directly.
         fmt = (
-            "bestvideo[vcodec^=avc1][ext=mp4]+"
-            "bestaudio[acodec=aac][ext=m4a]/"
-            "bestvideo[vcodec^=avc1]+"
-            "bestaudio[acodec=aac]/"
-            "bestvideo[ext=mp4]+"
-            "bestaudio[ext=m4a]/"
+            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec=aac][ext=m4a]/"
+            "bestvideo[vcodec^=avc1]+bestaudio[acodec=aac]/"
+            "bestvideo[vcodec^=avc1]+bestaudio/"
+            "best[vcodec^=avc1][ext=mp4]/"
+            "best[vcodec^=avc1]/"
             "best[ext=mp4]/"
             "best"
         )
