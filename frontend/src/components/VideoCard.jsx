@@ -37,6 +37,18 @@ export default function VideoCard({ info, sourceUrl }) {
     }
   }
 
+  const handleConcatDownload = async () => {
+    setDownloading('concat')
+    setError(null)
+    try {
+      await download(sourceUrl, 'best', null, true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setDownloading(null)
+    }
+  }
+
   const handleAudioDownload = async () => {
     setDownloading('audio')
     setError(null)
@@ -81,6 +93,20 @@ export default function VideoCard({ info, sourceUrl }) {
         
         {info.entries && info.entries.length > 0 ? (
           <div className="flex flex-col gap-3">
+            <button
+              onClick={handleConcatDownload}
+              disabled={downloading !== null}
+              className="flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-2 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {downloading === 'concat' ? (
+                <>
+                  <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  <span>Merging…</span>
+                </>
+              ) : (
+                `Download all ${info.entries.length} videos as one`
+              )}
+            </button>
             {info.entries.map((entry) => (
               <div key={entry.index} className="rounded-xl border border-white/5 bg-white/3 p-3">
                 <p className="mb-2 text-xs text-white/40">Video {entry.index}{entry.duration ? ` · ${formatDuration(entry.duration)}` : ''}</p>

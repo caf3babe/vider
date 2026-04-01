@@ -37,10 +37,11 @@ export async function downloadAudio(url) {
   URL.revokeObjectURL(link.href)
 }
 
-export async function download(url, formatId, playlistItem) {
+export async function download(url, formatId, playlistItem, concat = false) {
   try {
     let apiUrl = `${BASE}/download?url=${encodeURIComponent(url)}&format_id=${encodeURIComponent(formatId)}`
     if (playlistItem != null) apiUrl += `&playlist_item=${playlistItem}`
+    if (concat) apiUrl += `&concat=true`
     const res = await fetch(apiUrl)
     if (!res.ok) {
       const data = await res.json()

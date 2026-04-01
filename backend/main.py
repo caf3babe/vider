@@ -2,6 +2,7 @@
 
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from urllib.parse import quote
@@ -236,57 +237,100 @@ def download(
     url: str = Query(...),
     format_id: str = Query("best"),
     playlist_item: int | None = Query(None),
+    concat: bool = Query(False),
 ):
     url, _ = _validate_url(url)
 
     tmp_dir = tempfile.mkdtemp()
 
-    if format_id != "best":
-        fmt = format_id
-    else:
-        fmt = (
-            "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec=aac][ext=m4a]/"
-            "bestvideo[vcodec^=avc1]+bestaudio[acodec=aac]/"
-            "bestvideo[vcodec^=avc1]+bestaudio/"
-            "best[vcodec^=avc1][ext=mp4]/"
-            "best[vcodec^=avc1]/"
-            "best[ext=mp4]/"
-            "best"
-        )
-
-    ydl_opts = {
-        "outtmpl": str(Path(tmp_dir) / "%(title)s.%(ext)s"),
-        "format": fmt,
-        "quiet": False,
-        "no_warnings": False,
-        "merge_output_format": "mp4",
-        "postprocessor_args": ["-c", "copy"],
-        "prefer_ffmpeg": True,
-        "ffmpeg_location": None,
-    }
-    if playlist_item is not None:
-        ydl_opts["playlist_items"] = str(playlist_item)
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.extract_info(url, download=True)
-    except yt_dlp.utils.DownloadError as exc:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except Exception as exc:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=f"Download error: {str(exc)}") from exc
+    _IOS_FMT = (
+        "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec=aac][ext=m4a]/"
+        "bestvideo[vcodec^=avc1]+bestaudio[acodec=aac]/"
+        "bestvideo[vcodec^=avc1]+bestaudio/"
+        "best[vcodec^=avc1][ext=mp4]/"
+        "best[vcodec^=avc1]/"
+        "best[ext=mp4]/"
+        "best"
+    )
 
     video_exts = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
-    files = [f for f in Path(tmp_dir).glob("*") if f.suffix.lower() in video_exts]
-    if not files:
-        all_files = list(Path(tmp_dir).glob("*"))
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Downloaded file not found (found: {[f.name for f in all_files]})",
-        )
-    file_path = files[0]
+
+    if concat:
+        # Download every playlist entry then concatenate with ffmpeg.
+        ydl_opts = {
+            "outtmpl": str(Path(tmp_dir) / "%(playlist_index)03d.%(ext)s"),
+            "format": _IOS_FMT,
+            "quiet": False,
+            "merge_output_format": "mp4",
+            "postprocessor_args": ["-c", "copy"],
+            "prefer_ffmpeg": True,
+            "ffmpeg_location": None,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(url, download=True)
+        except yt_dlp.utils.DownloadError as exc:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=500, detail=f"Download error: {str(exc)}") from exc
+
+        parts = sorted(f for f in Path(tmp_dir).glob("*") if f.suffix.lower() in video_exts)
+        if not parts:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=500, detail="No video files downloaded")
+
+        if len(parts) == 1:
+            file_path = parts[0]
+        else:
+            concat_list = Path(tmp_dir) / "concat.txt"
+            concat_list.write_text("\n".join(f"file '{p}'" for p in parts))
+            merged = Path(tmp_dir) / "merged.mp4"
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                 "-i", str(concat_list), "-c", "copy", str(merged)],
+                capture_output=True,
+            )
+            if result.returncode != 0:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise HTTPException(status_code=500, detail="ffmpeg concat failed")
+            file_path = merged
+
+    else:
+        fmt = format_id if format_id != "best" else _IOS_FMT
+        ydl_opts = {
+            "outtmpl": str(Path(tmp_dir) / "%(title)s.%(ext)s"),
+            "format": fmt,
+            "quiet": False,
+            "no_warnings": False,
+            "merge_output_format": "mp4",
+            "postprocessor_args": ["-c", "copy"],
+            "prefer_ffmpeg": True,
+            "ffmpeg_location": None,
+        }
+        if playlist_item is not None:
+            ydl_opts["playlist_items"] = str(playlist_item)
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(url, download=True)
+        except yt_dlp.utils.DownloadError as exc:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(status_code=500, detail=f"Download error: {str(exc)}") from exc
+
+        files = [f for f in Path(tmp_dir).glob("*") if f.suffix.lower() in video_exts]
+        if not files:
+            all_files = list(Path(tmp_dir).glob("*"))
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Downloaded file not found (found: {[f.name for f in all_files]})",
+            )
+        file_path = files[0]
 
     def iterfile():
         try:
