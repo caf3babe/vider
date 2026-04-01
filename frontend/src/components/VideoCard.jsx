@@ -24,11 +24,12 @@ export default function VideoCard({ info, sourceUrl }) {
   const [error, setError] = useState(null)
   const isYT = isYouTubeUrl(sourceUrl)
 
-  const handleDownload = async (formatId) => {
-    setDownloading(formatId)
+  const handleDownload = async (formatId, playlistItem) => {
+    const key = playlistItem != null ? `${playlistItem}:${formatId}` : formatId
+    setDownloading(key)
     setError(null)
     try {
-      await download(sourceUrl, formatId)
+      await download(sourceUrl, formatId, playlistItem)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -78,55 +79,88 @@ export default function VideoCard({ info, sourceUrl }) {
           </div>
         )}
         
-        <div className="flex flex-wrap gap-2">
-          {isYT ? (
-            <button
-              onClick={handleAudioDownload}
-              disabled={downloading !== null}
-              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {downloading === 'audio' ? (
-                <>
-                  <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
-                  <span>Downloading…</span>
-                </>
-              ) : (
-                'Download MP3'
-              )}
-            </button>
-          ) : info.formats.length > 0 ? (
-            info.formats.map((fmt) => (
+        {info.entries && info.entries.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {info.entries.map((entry) => (
+              <div key={entry.index} className="rounded-xl border border-white/5 bg-white/3 p-3">
+                <p className="mb-2 text-xs text-white/40">Video {entry.index}{entry.duration ? ` · ${formatDuration(entry.duration)}` : ''}</p>
+                <div className="flex flex-wrap gap-2">
+                  {entry.formats.map((fmt) => {
+                    const key = `${entry.index}:${fmt.format_id}`
+                    return (
+                      <button
+                        key={fmt.format_id}
+                        onClick={() => handleDownload(fmt.format_id, entry.index)}
+                        disabled={downloading !== null}
+                        className="flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {downloading === key ? (
+                          <>
+                            <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                            <span>Downloading…</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>{qualityLabel(fmt)}</span>
+                            {fmt.filesize && <span className="text-white/50 text-xs">· {formatSize(fmt.filesize)}</span>}
+                          </>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {isYT ? (
               <button
-                key={fmt.format_id}
-                onClick={() => handleDownload(fmt.format_id)}
+                onClick={handleAudioDownload}
                 disabled={downloading !== null}
-                className="flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {downloading === fmt.format_id ? (
+                {downloading === 'audio' ? (
                   <>
                     <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
                     <span>Downloading…</span>
                   </>
                 ) : (
-                  <>
-                    <span>{qualityLabel(fmt)}</span>
-                    {fmt.filesize && (
-                      <span className="text-white/50 text-xs">· {formatSize(fmt.filesize)}</span>
-                    )}
-                  </>
+                  'Download MP3'
                 )}
               </button>
-            ))
-          ) : (
-            <button
-              onClick={() => handleDownload('best')}
-              disabled={downloading !== null}
-              className="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {downloading ? 'Downloading…' : 'Best quality'}
-            </button>
-          )}
-        </div>
+            ) : info.formats.length > 0 ? (
+              info.formats.map((fmt) => (
+                <button
+                  key={fmt.format_id}
+                  onClick={() => handleDownload(fmt.format_id)}
+                  disabled={downloading !== null}
+                  className="flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-purple-600 px-3 py-1.5 text-sm font-medium text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {downloading === fmt.format_id ? (
+                    <>
+                      <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                      <span>Downloading…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>{qualityLabel(fmt)}</span>
+                      {fmt.filesize && <span className="text-white/50 text-xs">· {formatSize(fmt.filesize)}</span>}
+                    </>
+                  )}
+                </button>
+              ))
+            ) : (
+              <button
+                onClick={() => handleDownload('best')}
+                disabled={downloading !== null}
+                className="rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-4 py-1.5 text-sm font-semibold text-white hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {downloading ? 'Downloading…' : 'Best quality'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

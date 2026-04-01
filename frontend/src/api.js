@@ -37,9 +37,11 @@ export async function downloadAudio(url) {
   URL.revokeObjectURL(link.href)
 }
 
-export async function download(url, formatId) {
+export async function download(url, formatId, playlistItem) {
   try {
-    const res = await fetch(`${BASE}/download?url=${encodeURIComponent(url)}&format_id=${encodeURIComponent(formatId)}`)
+    let apiUrl = `${BASE}/download?url=${encodeURIComponent(url)}&format_id=${encodeURIComponent(formatId)}`
+    if (playlistItem != null) apiUrl += `&playlist_item=${playlistItem}`
+    const res = await fetch(apiUrl)
     if (!res.ok) {
       const data = await res.json()
       throw new Error(data.detail || 'Download failed')

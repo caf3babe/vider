@@ -35,6 +35,17 @@ YOUTUBE_RE = re.compile(
     r"https?://(www\.)?(youtube\.com/(watch\?[^#]*v=[\w-]+|shorts/[\w-]+)|youtu\.be/[\w-]+)"
 )
 
+# iOS supports H.264, HEVC, and AV1 — VP8/VP9 render as audio-only.
+_IOS_VCODECS = ("avc1", "hvc1", "hev1", "av01", "mp4v")
+
+
+class CarouselEntry(BaseModel):
+    index: int  # 1-based playlist_item index for yt-dlp
+    title: str | None
+    thumbnail: str | None
+    duration: float | None
+    formats: list[dict]
+
 
 class VideoInfo(BaseModel):
     id: str
@@ -43,14 +54,10 @@ class VideoInfo(BaseModel):
     duration: float | None
     uploader: str | None
     formats: list[dict]
+    entries: list[CarouselEntry] = []  # non-empty for carousel/playlist posts
 
 
 def _content_disposition(filename: str) -> str:
-    """Return a Content-Disposition value that works on iOS Safari / Brave.
-
-    Provides an ASCII fallback (spaces → underscores) plus an RFC 5987
-    ``filename*`` parameter so browsers that support it get the real name.
-    """
     ascii_fallback = re.sub(r"[^\x20-\x7e]", "_", filename).replace(" ", "_").replace('"', "_")
     encoded = quote(filename, safe=".-_~")
     return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
@@ -65,6 +72,40 @@ def _validate_url(url: str) -> tuple[str, str]:
     raise HTTPException(status_code=400, detail="Not a valid Instagram or YouTube URL")
 
 
+def _filter_formats(info: dict) -> list[dict]:
+    """Return deduplicated iOS-compatible combined (video+audio) formats."""
+    def is_combined(f: dict) -> bool:
+        return (
+            bool(f.get("url"))
+            and f.get("vcodec") not in (None, "none")
+            and f.get("acodec") not in (None, "none")
+        )
+
+    def is_ios(f: dict) -> bool:
+        return any(f.get("vcodec", "").startswith(c) for c in _IOS_VCODECS)
+
+    raw = [f for f in (info.get("formats") or []) if is_combined(f)]
+    source = [f for f in raw if is_ios(f)] or raw
+
+    formats = [
+        {
+            "format_id": f.get("format_id"),
+            "ext": f.get("ext"),
+            "height": f.get("height"),
+            "width": f.get("width"),
+            "filesize": f.get("filesize"),
+        }
+        for f in source
+    ]
+
+    seen: dict[int | None, dict] = {}
+    for fmt in formats:
+        h = fmt["height"]
+        if h not in seen or (fmt.get("filesize") or 0) > (seen[h].get("filesize") or 0):
+            seen[h] = fmt
+    return sorted(seen.values(), key=lambda f: f["height"] or 0, reverse=True)
+
+
 @app.get("/api/info", response_model=VideoInfo)
 def get_info(url: str = Query(..., description="Instagram or YouTube URL")):
     url, _ = _validate_url(url)
@@ -76,45 +117,32 @@ def get_info(url: str = Query(..., description="Instagram or YouTube URL")):
     except yt_dlp.utils.DownloadError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # iOS supports H.264 (avc1), HEVC (hvc1/hev1), and AV1 (av01).
-    # VP8/VP9 are not supported and will appear as audio-only on iOS.
-    _IOS_VCODECS = ("avc1", "hvc1", "hev1", "av01", "mp4v")
+    if info.get("_type") == "playlist":
+        entries = []
+        for i, entry in enumerate(info.get("entries") or [], start=1):
+            if not entry:
+                continue
+            entry_formats = _filter_formats(entry)
+            if not entry_formats:
+                continue  # image-only entry — skip
+            entries.append(CarouselEntry(
+                index=i,
+                title=entry.get("title") or entry.get("description"),
+                thumbnail=entry.get("thumbnail"),
+                duration=entry.get("duration"),
+                formats=entry_formats,
+            ))
 
-    def _is_video(f: dict) -> bool:
-        # Only combined formats (video+audio in one stream) — excludes DASH video-only tracks.
-        return (
-            bool(f.get("url"))
-            and f.get("vcodec") not in (None, "none")
-            and f.get("acodec") not in (None, "none")
+        first = next((e for e in (info.get("entries") or []) if e), {})
+        return VideoInfo(
+            id=info.get("id", ""),
+            title=info.get("title") or first.get("title") or first.get("description") or "Instagram Carousel",
+            thumbnail=info.get("thumbnail") or first.get("thumbnail"),
+            duration=None,
+            uploader=info.get("uploader") or info.get("channel") or first.get("uploader"),
+            formats=[],
+            entries=entries,
         )
-
-    def _is_ios_compat(f: dict) -> bool:
-        return any(f.get("vcodec", "").startswith(c) for c in _IOS_VCODECS)
-
-    raw = [f for f in (info.get("formats") or []) if _is_video(f)]
-    ios_formats = [f for f in raw if _is_ios_compat(f)]
-    # Prefer iOS-compatible codecs; fall back to all video formats if none found.
-    source_formats = ios_formats or raw
-
-    formats = [
-        {
-            "format_id": f.get("format_id"),
-            "ext": f.get("ext"),
-            "height": f.get("height"),
-            "width": f.get("width"),
-            "filesize": f.get("filesize"),
-            "url": f.get("url"),
-        }
-        for f in source_formats
-    ]
-
-    # Deduplicate by height, keep best bitrate per resolution
-    seen: dict[int | None, dict] = {}
-    for fmt in formats:
-        h = fmt["height"]
-        if h not in seen or (fmt.get("filesize") or 0) > (seen[h].get("filesize") or 0):
-            seen[h] = fmt
-    formats = sorted(seen.values(), key=lambda f: f["height"] or 0, reverse=True)
 
     return VideoInfo(
         id=info.get("id", ""),
@@ -122,7 +150,7 @@ def get_info(url: str = Query(..., description="Instagram or YouTube URL")):
         thumbnail=info.get("thumbnail"),
         duration=info.get("duration"),
         uploader=info.get("uploader") or info.get("channel"),
-        formats=formats,
+        formats=_filter_formats(info),
     )
 
 
@@ -138,7 +166,13 @@ async def thumbnail_proxy(url: str = Query(...)):
     except yt_dlp.utils.DownloadError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    thumbnail_url = info.get("thumbnail")
+    # For playlists grab the first entry's thumbnail
+    if info.get("_type") == "playlist":
+        first = next((e for e in (info.get("entries") or []) if e), {})
+        thumbnail_url = info.get("thumbnail") or first.get("thumbnail")
+    else:
+        thumbnail_url = info.get("thumbnail")
+
     if not thumbnail_url:
         raise HTTPException(status_code=404, detail="No thumbnail available")
 
@@ -201,20 +235,15 @@ def download_audio(url: str = Query(...)):
 def download(
     url: str = Query(...),
     format_id: str = Query("best"),
+    playlist_item: int | None = Query(None),
 ):
     url, _ = _validate_url(url)
 
     tmp_dir = tempfile.mkdtemp()
-    
-    # Format selection: prioritize H.264 + AAC for macOS QuickTime compatibility
+
     if format_id != "best":
-        # Instagram formats are combined (video+audio in one stream).
-        # Just download the selected format directly — no merge needed.
         fmt = format_id
     else:
-        # Prefer H.264 + AAC for widest device compatibility (QuickTime, iOS).
-        # For YouTube DASH the bestvideo+bestaudio combos apply.
-        # For Instagram combined streams, best[vcodec^=avc1] matches directly.
         fmt = (
             "bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[acodec=aac][ext=m4a]/"
             "bestvideo[vcodec^=avc1]+bestaudio[acodec=aac]/"
@@ -231,18 +260,16 @@ def download(
         "quiet": False,
         "no_warnings": False,
         "merge_output_format": "mp4",
-        # Stream-copy: already selecting H.264+AAC so no re-encoding needed.
-        # This is dramatically faster than transcoding.
         "postprocessor_args": ["-c", "copy"],
         "prefer_ffmpeg": True,
         "ffmpeg_location": None,
     }
+    if playlist_item is not None:
+        ydl_opts["playlist_items"] = str(playlist_item)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            file_path = Path(filename)
+            ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as exc:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -250,22 +277,23 @@ def download(
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"Download error: {str(exc)}") from exc
 
-    if not file_path.exists():
-        # List what files are in the directory for debugging
-        files_in_dir = list(Path(tmp_dir).glob("*"))
+    video_exts = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+    files = [f for f in Path(tmp_dir).glob("*") if f.suffix.lower() in video_exts]
+    if not files:
+        all_files = list(Path(tmp_dir).glob("*"))
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(
-            status_code=500, 
-            detail=f"Downloaded file not found: {file_path.name} (found: {[f.name for f in files_in_dir]})"
+            status_code=500,
+            detail=f"Downloaded file not found (found: {[f.name for f in all_files]})",
         )
+    file_path = files[0]
 
     def iterfile():
         try:
             with open(file_path, "rb") as f:
-                while chunk := f.read(1024 * 1024):  # 1MB chunks
+                while chunk := f.read(1024 * 1024):
                     yield chunk
         finally:
-            # Cleanup after serving
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return StreamingResponse(
