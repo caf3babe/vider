@@ -1,22 +1,33 @@
 import { useState } from 'react'
 import UrlForm from './components/UrlForm'
-import VideoCard from './components/VideoCard'
-import { fetchInfo } from './api'
+import VideoGrid from './components/VideoGrid'
+import DownloadOptions from './components/DownloadOptions'
+import { fetchBatchInfo, fetchInfo } from './api'
 
 export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [info, setInfo] = useState(null)
-  const [sourceUrl, setSourceUrl] = useState('')
+  const [infoResults, setInfoResults] = useState([])
+  const [sourceUrls, setSourceUrls] = useState([])
 
-  const handleSubmit = async (url) => {
+  const handleSubmitBatch = async (urls) => {
     setLoading(true)
     setError(null)
-    setInfo(null)
+    setInfoResults([])
+
     try {
-      const data = await fetchInfo(url)
-      setInfo(data)
-      setSourceUrl(url)
+      if (urls.length === 1) {
+        const data = await fetchInfo(urls[0])
+        setInfoResults([{ success: true, url: urls[0], ...data }])
+      } else {
+        const response = await fetchBatchInfo(urls)
+        const resultsWithUrls = response.results.map((result, idx) => ({
+          ...result,
+          url: urls[idx]
+        }))
+        setInfoResults(resultsWithUrls)
+      }
+      setSourceUrls(urls)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -25,34 +36,37 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0e0e10] text-white flex flex-col items-center px-4 py-16">
+    <div className="min-h-screen bg-white text-black flex flex-col items-center px-4 py-16">
       <div className="mb-10 text-center">
-        <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-          vider
-        </h1>
-        <p className="mt-2 text-white/40 text-sm">Download Instagram videos & reels</p>
+        <h1 className="text-5xl font-black tracking-tight">vider</h1>
+        <p className="mt-2 text-black/60 text-sm">Download Instagram videos & YouTube audio</p>
       </div>
 
-      <div className="w-full max-w-lg flex flex-col gap-4">
-        <UrlForm onSubmit={handleSubmit} loading={loading} />
+      <div className="w-full max-w-2xl flex flex-col gap-6">
+        <UrlForm onSubmit={handleSubmitBatch} loading={loading} />
 
         {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div className="border-3 border-red-600 bg-white px-4 py-3 text-sm text-red-600">
             {error}
           </div>
         )}
 
         {loading && (
           <div className="flex justify-center py-8">
-            <div className="h-8 w-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
+            <div className="h-8 w-8 border-3 border-black border-t-transparent animate-spin" />
           </div>
         )}
 
-        {info && <VideoCard info={info} sourceUrl={sourceUrl} />}
+        {infoResults.length > 0 && (
+          <>
+            <VideoGrid results={infoResults} />
+            <DownloadOptions sourceUrls={sourceUrls} infoResults={infoResults} />
+          </>
+        )}
       </div>
 
-      <p className="mt-auto pt-16 text-xs text-white/20">
-        Supports Instagram posts, reels, and IGTV
+      <p className="mt-auto pt-16 text-xs text-black/40">
+        Supports Instagram posts, reels, IGTV · YouTube videos & shorts (MP3)
       </p>
     </div>
   )
